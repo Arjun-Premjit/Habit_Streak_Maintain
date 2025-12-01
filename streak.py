@@ -39,17 +39,27 @@ def get_connection():
   except Exception as e:
     st.error(f"Connection error: {e}. Verify your Google service account and sheet permissions.")
     return None
-
+def initialize_sheet(sheet):
+    """Initialize sheet with headers if empty."""
+    try:
+        records = sheet.get_all_records()
+        if not records:
+            sheet.append_row(["Date", "Habit", "Completed"])
+    except:
+        sheet.append_row(["Date", "Habit", "Completed"])
 
 def load_data_db(sheet):
     """Load all habit data from Google Sheet."""
     try:
+        initialize_sheet(sheet)
         records = sheet.get_all_records()
         habits = {}
         for record in records:
-            habit = record["Habit"]
+            habit = record.get("Habit", "")
+            if not habit:
+                continue
             date_obj = datetime.strptime(record["Date"], '%d/%m/%Y').date()
-            completed = record["Completed"] == 'True'
+            completed = record.get("Completed", "False") == 'True'
             if habit not in habits:
                 habits[habit] = []
             habits[habit].append((date_obj, completed))
@@ -71,40 +81,60 @@ def save_data_db(sheet, habits):
         st.error(f"Error saving to sheet: {e}")
 
 def get_days_in_month(month_num, year):
-    """Return number of days in month."""
     return calendar.monthrange(year, month_num)[1]
 
-def get_habit_df_for_month(habits, habit_name, month_num, year):
-    """Get DataFrame for a habit's data in a specific month."""
+def display_calendar(habits, habit_name, month_num, year):
+    """Display interactive calendar for the month."""
     days = get_days_in_month(month_num, year)
-    dates_list = [date(year, month_num, day) for day in range(1, days + 1)]
-    
     records = habits.get(habit_name, [])
-    data_dict = {d: False for d in dates_list}
-    for d, completed in records:
-        if d in data_dict:
-            data_dict[d] = completed
+    data_dict = {d: False for d in range(1, days + 1)}
+    for dt, completed in records:
+        if dt.month == month_num and dt.year == year:
+            data_dict[dt.day] = completed
     
-    df_data = {
-        "தேதி": [d.strftime('%d/%m/%Y') for d in dates_list],
-        "நிறைவு": [DONE_EMOJI if data_dict[d] else MISS_EMOJI for d in dates_list]
-    }
-    return pd.DataFrame(df_data)
-
-def update_habit_from_df(habits, habit_name, df, month_num, year):
-    """Update habits dict from edited DataFrame."""
-    days = get_days_in_month(month_num, year)
-    dates_list = [date(year, month_num, day) for day in range(1, days + 1)]
+    # Calendar layout
+    st.subheader(f"📅 {calendar.month_name[month_num]} {year} - {habit_name}")
     
-    if habit_name not in habits:
-        habits[habit_name] = []
+    # Weekday headers
+    weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    cols = st.columns(7)
+    for i, wd in enumerate(weekdays):
+        cols[i].markdown(f"**{wd}**")
     
-    for i, d in enumerate(dates_list):
-        completed = df.loc[i, "நிறைவு"] == DONE_EMOJI
-        # Remove existing entry for this date
-        habits[habit_name] = [(dt, comp) for dt, comp in habits[habit_name] if dt != d]
-        # Add updated entry
-        habits[habit_name].append((d, completed))
+    # First day of month
+    first_day = date(year, month_num, 1)
+    start_weekday = first_day.weekday()  # 0=Monday
+    
+    # Buttons for days
+    day = 1
+    for week in range(6):  # Max 6 weeks
+        cols = st.columns(7)
+        for wd in range(7):
+            if week == 0 and wd < start_weekday:
+                cols[wd].write("")  # Empty
+            elif day > days:
+                cols[wd].write("")  # Empty
+            else:
+                completed = data_dict[day]
+                emoji = DONE_EMOJI if completed else MISS_EMOJI
+                color = "green" if completed else "red"
+                if cols[wd].button(f"{day} {emoji}", key=f"{habit_name}_{month_num}_{year}_{day}"):
+                    # Toggle completion
+                    data_dict[day] = not completed
+                    # Update habits
+                    dt = date(year, month_num, day)
+                    habits[habit_name] = [(d, c) for d, c in habits[habit_name] if d != dt]
+                    habits[habit_name].append((dt, data_dict[day]))
+                    st.rerun()  # Refresh to update display
+                day += 1
+        if day > days:
+            break
+    
+    # Progress bar
+    completed_days = sum(data_dict.values())
+    progress = completed_days / days
+    st.progress(progress)
+    st.write(f"**Progress: {completed_days}/{days} days completed ({progress*100:.1f}%)**")
 
 def calculate_streak(records):
     today = date.today()
@@ -128,7 +158,7 @@ def app():
     habits = load_data_db(sheet)
     
     # Sidebar for adding habits
-    st.sidebar.header("Add New Habit")
+    st.sidebar.header("➕ Add New Habit")
     new_habit = st.sidebar.text_input("Habit Name")
     if st.sidebar.button("Add Habit"):
         if new_habit and new_habit not in habits:
@@ -139,21 +169,19 @@ def app():
         else:
             st.sidebar.error("Please enter a habit name.")
     
-    # Get current month and year
+    # Month/Year selection
     now = datetime.now()
     current_month_num = now.month
     current_year = now.year
     
-    # Month dropdown
     month_names = [calendar.month_name[i] for i in range(1, 13)]
     selected_month_name = st.selectbox(
-        "Select Month for Editing:",
+        "Select Month:",
         options=month_names,
         index=current_month_num - 1
     )
     selected_month_num = month_names.index(selected_month_name) + 1
     
-    # Year input
     selected_year = st.number_input(
         "Select Year:",
         min_value=2000,
@@ -162,25 +190,21 @@ def app():
         step=1
     )
     
-    st.write(f"**Editing data for: {selected_month_name} {selected_year}**")
-    
     # Main content
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.header("Today's Check-In")
+        st.header("📝 Today's Check-In")
         today = date.today()
         for habit in habits:
-            st.subheader(f"{habit}")
+            st.subheader(f"🏃 {habit}")
             completed = st.checkbox(f"Mark as done {DONE_EMOJI}", key=habit)
             if completed:
-                # Add today's completion if not already present
                 records = habits[habit]
                 if not any(dt == today for dt, _ in records):
                     records.append((today, True))
                 st.success(f"Great job! {STREAK_EMOJI} Streak: {calculate_streak(records)}")
             else:
-                # Ensure today's record exists as not completed
                 records = habits[habit]
                 if not any(dt == today for dt, _ in records):
                     records.append((today, False))
@@ -191,37 +215,20 @@ def app():
                     st.warning(f"No streak yet. {MISS_EMOJI}")
     
     with col2:
-        st.header("Edit Past Month Completions")
+        st.header("🗓️ Edit Past Completions")
         if habits:
-            selected_habit = st.selectbox("Select Habit to Edit", list(habits.keys()))
-            df = get_habit_df_for_month(habits, selected_habit, selected_month_num, selected_year)
-            
-            if 'editor_key' not in st.session_state:
-                st.session_state.editor_key = 0
-            
-            edited_df = st.data_editor(
-                df,
-                column_config={
-                    "தேதி": st.column_config.TextColumn("தேதி (dd/mm/yyyy)", disabled=True),
-                    "நிறைவு": st.column_config.SelectboxColumn("நிறைவு", options=[DONE_EMOJI, MISS_EMOJI]),
-                },
-                hide_index=True,
-                num_rows="fixed",
-                key=f"editor_{st.session_state.editor_key}"
-            )
-            
-            if st.button("Update Past Data"):
-                update_habit_from_df(habits, selected_habit, edited_df, selected_month_num, selected_year)
-                st.success("Past data updated!")
-                st.session_state.editor_key += 1  # Refresh editor
+            selected_habit = st.selectbox("Select Habit", list(habits.keys()))
+            display_calendar(habits, selected_habit, selected_month_num, selected_year)
         else:
             st.write("No habits added yet.")
     
     # Save data
-    if st.button("Save All Progress"):
+    if st.button("💾 Save All Progress"):
         save_data_db(sheet, habits)
         st.success("All data saved to Google Sheets!")
 
 if __name__ == "__main__":
     app()
+
+
 
