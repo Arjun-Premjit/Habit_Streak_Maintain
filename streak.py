@@ -11,9 +11,23 @@ DONE_EMOJI = "✅"
 STREAK_EMOJI = "🔥"
 MISS_EMOJI = "❌"
 
+
 def get_connection():
-    # Authenticate with Google Sheets using st.secrets
-    creds_dict = st.secrets["google"]["credentials"]
+  """Authenticate and connect to Google Sheets."""
+  try:
+    creds_dict = {
+        "type": st.secrets["google"]["type"],
+        "project_id": st.secrets["google"]["project_id"],
+        "private_key_id": st.secrets["google"]["private_key_id"],
+        "private_key": st.secrets["google"]["private_key"],
+        "client_email": st.secrets["google"]["client_email"],
+        "client_id": st.secrets["google"]["client_id"],
+        "auth_uri": st.secrets["google"]["auth_uri"],
+        "token_uri": st.secrets["google"]["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["google"]["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["google"]["client_x509_cert_url"],
+        "universe_domain": st.secrets["google"]["universe_domain"]
+    }
     creds = Credentials.from_service_account_info(creds_dict, scopes=[
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
@@ -22,6 +36,10 @@ def get_connection():
     sheet_id = st.secrets["google"]["sheet_id"]
     sheet = client.open_by_key(sheet_id).sheet1  # Access the first sheet
     return sheet
+  except Exception as e:
+    st.error(f"Connection error: {e}. Verify your Google service account and sheet permissions.")
+    return None
+
 
 def load_data_db(sheet):
     """Load all habit data from Google Sheet."""
@@ -206,3 +224,4 @@ def app():
 
 if __name__ == "__main__":
     app()
+
