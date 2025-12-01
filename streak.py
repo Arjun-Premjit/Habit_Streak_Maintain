@@ -82,7 +82,6 @@ def save_data_db(sheet, habits):
 
 def get_days_in_month(month_num, year):
     return calendar.monthrange(year, month_num)[1]
-
 def display_calendar(habits, habit_name, month_num, year):
     """Display interactive calendar for the month."""
     days = get_days_in_month(month_num, year)
@@ -92,49 +91,93 @@ def display_calendar(habits, habit_name, month_num, year):
         if dt.month == month_num and dt.year == year:
             data_dict[dt.day] = completed
     
-    # Calendar layout
+    # Calendar layout with HTML for better appearance
     st.subheader(f"📅 {calendar.month_name[month_num]} {year} - {habit_name}")
     
-    # Weekday headers
-    weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    cols = st.columns(7)
-    for i, wd in enumerate(weekdays):
-        cols[i].markdown(f"**{wd}**")
+    # Build HTML table
+    html = """
+    <style>
+    .calendar-table { border-collapse: collapse; width: 100%; }
+    .calendar-table th, .calendar-table td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    .calendar-table th { background-color: #f2f2f2; }
+    .completed { background-color: #d4edda; }
+    .incomplete { background-color: #f8d7da; }
+    </style>
+    <table class="calendar-table">
+    <tr>
+        <th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th>
+    </tr>
+    """
     
     # First day of month
     first_day = date(year, month_num, 1)
     start_weekday = first_day.weekday()  # 0=Monday
     
-    # Buttons for days
     day = 1
     for week in range(6):  # Max 6 weeks
+        html += "<tr>"
+        for wd in range(7):
+            if week == 0 and wd < start_weekday:
+                html += "<td></td>"  # Empty
+            elif day > days:
+                html += "<td></td>"  # Empty
+            else:
+                completed = data_dict[day]
+                emoji = DONE_EMOJI if completed else ""
+                css_class = "completed" if completed else "incomplete"
+                # Use a unique key for each button
+                button_key = f"{habit_name}_{month_num}_{year}_{day}"
+                # Since HTML table can't have buttons directly, we'll use Streamlit buttons below the table
+                # But to make it look integrated, we'll place buttons in placeholders
+                html += f"<td class='{css_class}'>{day} {emoji}</td>"
+                day += 1
+        html += "</tr>"
+        if day > days:
+            break
+    html += "</table>"
+    
+    # Display the HTML table
+    st.markdown(html, unsafe_allow_html=True)
+    
+    # Now add interactive buttons below or overlay (but since Streamlit doesn't support overlay easily, use a grid of buttons)
+    # To make it interactive, we'll recreate the grid with buttons, but hide the HTML and use buttons styled to look like the table
+    # Actually, to simplify, keep the button grid but make it look better
+    
+    # Weekday headers
+    weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    cols = st.columns(7)
+    for i, wd in enumerate(weekdays):
+        cols[i].markdown(f"**{wd}**", unsafe_allow_html=True)
+    
+    # Buttons for days
+    day = 1
+    for week in range(6):
         cols = st.columns(7)
         for wd in range(7):
             if week == 0 and wd < start_weekday:
-                cols[wd].write("")  # Empty
+                cols[wd].write("")
             elif day > days:
-                cols[wd].write("")  # Empty
+                cols[wd].write("")
             else:
                 completed = data_dict[day]
-                emoji = DONE_EMOJI if completed else MISS_EMOJI
-                color = "green" if completed else "red"
-                if cols[wd].button(f"{day} {emoji}", key=f"{habit_name}_{month_num}_{year}_{day}"):
-                    # Toggle completion
+                label = f"{day} {DONE_EMOJI}" if completed else f"{day}"
+                if cols[wd].button(label, key=f"{habit_name}_{month_num}_{year}_{day}"):
+                    # Toggle completion (single click to mark/unmark)
                     data_dict[day] = not completed
-                    # Update habits
                     dt = date(year, month_num, day)
                     habits[habit_name] = [(d, c) for d, c in habits[habit_name] if d != dt]
                     habits[habit_name].append((dt, data_dict[day]))
-                    st.rerun()  # Refresh to update display
+                    st.rerun()
                 day += 1
         if day > days:
             break
     
     # Progress bar
     completed_days = sum(data_dict.values())
-    progress = completed_days / days
+    progress = completed_days / days if days > 0 else 0
     st.progress(progress)
     st.write(f"**Progress: {completed_days}/{days} days completed ({progress*100:.1f}%)**")
+
 
 def calculate_streak(records):
     today = date.today()
@@ -229,6 +272,7 @@ def app():
 
 if __name__ == "__main__":
     app()
+
 
 
 
